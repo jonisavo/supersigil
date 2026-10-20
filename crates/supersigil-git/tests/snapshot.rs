@@ -59,8 +59,12 @@ fn snapshot_takes_the_on_disk_state_of_tracked_files() {
         ])
     );
     assert_eq!(paths(&snapshot.untracked), ["new.txt"]);
-    assert!(snapshot.not_captured.is_empty());
-    assert!(snapshot.unmerged.is_empty());
+    assert!(
+        snapshot.not_captured.is_empty(),
+        "{:?}",
+        snapshot.not_captured
+    );
+    assert_eq!(snapshot.unmerged, []);
     assert_eq!(snapshot.skip_worktree_absent, 0);
 }
 
@@ -117,7 +121,7 @@ fn a_fresh_repository_without_an_index_reads_as_empty() {
         repo.tree_files(included.tree.as_str()),
         files(&[("first.txt", "hello\n")])
     );
-    assert!(included.untracked.is_empty());
+    assert_eq!(included.untracked, []);
     assert!(!repo.root.join(".git/index").exists());
 }
 
@@ -338,7 +342,7 @@ fn a_submodule_configured_ignore_all_is_listed_not_captured() {
         );
     } else {
         assert_eq!(captured, new);
-        assert!(listed(&snapshot.not_captured).is_empty());
+        assert_eq!(listed(&snapshot.not_captured), []);
     }
 }
 

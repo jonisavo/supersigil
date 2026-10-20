@@ -282,8 +282,8 @@ mod tests {
             Revision::ZERO.next(),
             as_recorded(),
         );
-        assert!(set.discontinuities.is_empty());
-        assert!(set.restores.is_empty());
+        assert_eq!(set.discontinuities, []);
+        assert_eq!(set.restores, []);
     }
 
     #[test]
@@ -295,8 +295,8 @@ mod tests {
             Revision::ZERO.next(),
             no_key,
         );
-        assert!(set.discontinuities.is_empty());
-        assert!(set.restores.is_empty());
+        assert_eq!(set.discontinuities, []);
+        assert_eq!(set.restores, []);
 
         // An edit without a key is not compared with keyed edits either.
         let only_first = |e: &Edit| (e.id == id("t1")).then(|| e.checkout.join(&e.path));
@@ -306,8 +306,8 @@ mod tests {
             Revision::ZERO.next(),
             only_first,
         );
-        assert!(set.discontinuities.is_empty());
-        assert!(set.restores.is_empty());
+        assert_eq!(set.discontinuities, []);
+        assert_eq!(set.restores, []);
     }
 
     #[test]
@@ -336,7 +336,7 @@ mod tests {
                 restores: vec![id("t1")]
             }]
         );
-        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.discontinuities, []);
         assert_eq!(set.observation_revision, Revision::ZERO.next());
         assert_eq!(set.algorithm_version, ALGORITHM_VERSION);
     }
@@ -396,7 +396,7 @@ mod tests {
                 next: id("t2"),
             }]
         );
-        assert!(set.restores.is_empty());
+        assert_eq!(set.restores, []);
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
             edit("t3", "src/lib.rs", 3, FileState::unknown(), known("a\n")),
         ];
         let set = derive(&session(), &obs, Revision::ZERO.next(), as_recorded());
-        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.discontinuities, []);
         // t3 lands on "a\n", which was t1's before-state: that is a restore
         // because both of those hashes are known.
         assert_eq!(
@@ -463,8 +463,8 @@ mod tests {
         let [first, second] = mismatched();
         let obs = vec![from(first, "one.jsonl"), from(second, "two.jsonl")];
         let set = derive(&session(), &obs, Revision::ZERO.next(), as_recorded());
-        assert!(set.discontinuities.is_empty());
-        assert!(set.restores.is_empty());
+        assert_eq!(set.discontinuities, []);
+        assert_eq!(set.restores, []);
 
         // Within one transcript the same edits are a discontinuity and a
         // restore.
@@ -482,8 +482,8 @@ mod tests {
             edit("t2", "new.rs", 2, FileState::Absent, known("v\n")),
         ];
         let set = derive(&session(), &obs, Revision::ZERO.next(), as_recorded());
-        assert!(set.restores.is_empty());
-        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.restores, []);
+        assert_eq!(set.discontinuities, []);
     }
 
     #[test]
@@ -538,8 +538,8 @@ mod tests {
             e.session = SessionId::new("other");
         }
         let set = derive(&session(), &obs, Revision::ZERO.next(), as_recorded());
-        assert!(set.restores.is_empty());
-        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.restores, []);
+        assert_eq!(set.discontinuities, []);
         assert_eq!(set.session, session());
     }
 
@@ -559,7 +559,7 @@ mod tests {
                 restores: vec![id("t1")]
             }]
         );
-        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.discontinuities, []);
 
         // A replay whose payload differs is still the same event; the first
         // record of it wins.
@@ -572,8 +572,8 @@ mod tests {
             replay,
         ];
         let set = derive(&session(), &obs, Revision::ZERO.next(), as_recorded());
-        assert!(set.restores.is_empty());
-        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.restores, []);
+        assert_eq!(set.discontinuities, []);
     }
 
     /// Alternates one file between two contents for `count` edits, then adds

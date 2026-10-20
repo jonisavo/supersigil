@@ -478,7 +478,7 @@ fn an_agent_call_that_names_no_agent_or_failed_starts_nothing() {
             true,
         ),
     ]);
-    assert!(steps(&parse_transcript(failed.as_bytes(), 0)).is_empty());
+    assert_eq!(steps(&parse_transcript(failed.as_bytes(), 0)), []);
     let unnamed = lines(&[
         dispatch("a1", "toolu_d"),
         result(
@@ -489,7 +489,7 @@ fn an_agent_call_that_names_no_agent_or_failed_starts_nothing() {
             false,
         ),
     ]);
-    assert!(steps(&parse_transcript(unnamed.as_bytes(), 0)).is_empty());
+    assert_eq!(steps(&parse_transcript(unnamed.as_bytes(), 0)), []);
 }
 
 #[test]
@@ -527,7 +527,7 @@ fn a_message_queued_for_a_running_agent_starts_nothing() {
             false,
         ),
     ]);
-    assert!(steps(&parse_transcript(text.as_bytes(), 0)).is_empty());
+    assert_eq!(steps(&parse_transcript(text.as_bytes(), 0)), []);
 }
 
 #[test]
@@ -578,7 +578,7 @@ fn a_stop_is_placed_at_its_first_delivered_notification() {
     // A later parse that starts past the first delivery records no second
     // stop.
     let later = parse_transcript(text.as_bytes(), 4);
-    assert!(steps(&later).is_empty());
+    assert_eq!(steps(&later), []);
 }
 
 #[test]
@@ -984,13 +984,13 @@ fn transcripts_without_an_agent_id_or_outside_an_agent_receive_nothing() {
     for record in &mut anonymous {
         record.as_object_mut().unwrap().remove("agentId");
     }
-    assert!(receives(&anonymous).is_empty());
+    assert_eq!(receives(&anonymous), []);
     let main = [
         main_record("user", "u0", json!("Start.")),
         main_record("assistant", "x1", json!([{"type": "text", "text": "Ok."}])),
         delivered_notification("n1", "ag1", Some("toolu_d"), "completed"),
     ];
-    assert!(receives(&main).is_empty());
+    assert_eq!(receives(&main), []);
 }
 
 #[test]
@@ -1134,7 +1134,7 @@ fn an_ignored_record_naming_another_agent_ends_the_agents_work() {
         json!({"type": "system", "sessionId": SESSION, "isSidechain": true, "agentId": "a1"}),
         agent_record("a2", "user", "p0", json!("Do the task.")),
     ];
-    assert!(receives(&early).is_empty());
+    assert_eq!(receives(&early), []);
     // Naming the prompt's own agent, it receives the dispatch: the
     // transcript is read as an agent's.
     let mut same = early.clone();

@@ -395,7 +395,7 @@ fn an_occurrence_choice_whose_branches_use_different_edits_is_ambiguous() {
         ambiguous(&out, 1),
         vec![set([introduced("p")]), set([introduced("d")])]
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -427,7 +427,7 @@ fn an_unknown_hash_deletion_without_a_verified_chain_is_ambiguous_across_positio
             candidate(replace("e2", "t", 2, "y\n", "")),
         ],
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
     assert_eq!(out.chains.len(), 4);
     let readings = ambiguous(&out, 1);
     assert!(readings.contains(&set([Origin::Unexplained])));

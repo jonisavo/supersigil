@@ -621,9 +621,9 @@ fn scenario_6_an_agent_asked_to_acknowledge_is_refused_and_hands_the_command_ove
     let refused = judge_in_agent(&f, &["ack", "tests/add.rs", "tests/greet.rs"]);
 
     assert_eq!(refused.status.code(), Some(1));
-    assert!(refused.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&refused.stdout), "");
     assert_eq!(String::from_utf8(refused.stderr).unwrap(), AGENT);
-    assert!(recorded(&f).is_empty());
+    assert_eq!(recorded(&f), []);
 
     // The agent may read the open items, as JSON through its pipe, and
     // prepare the command for the person.

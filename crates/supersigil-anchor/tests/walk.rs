@@ -108,7 +108,7 @@ fn equal_ordinals_are_unordered() {
             .iter()
             .all(|w| w.chain.class == ChainClass::ExactFromBase)
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn an_unknown_and_a_known_operation_are_one_edit() {
             ..candidate(known)
         },
     ]);
-    assert!(conflicts.is_empty());
+    assert_eq!(conflicts, []);
     assert_eq!(accepted.len(), 1);
     assert_eq!(accepted[0].edit.operation, EditOperation::Replace);
     assert_eq!(
@@ -164,7 +164,7 @@ fn contradictory_sightings_are_excluded_as_conflicts() {
             },
         ],
     );
-    assert!(out.accepted.is_empty());
+    assert_eq!(out.accepted, []);
     assert_eq!(out.conflicts.len(), 1);
     assert_eq!(
         out.conflicts[0].records,
@@ -235,7 +235,7 @@ fn two_verified_histories_that_differ_in_which_edit_produced_a_state_both_stay()
             (ids(&["b1", "a2"]), ChainClass::ExactFromBase, true),
         ]
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn a_verified_step_behind_an_unknown_hash_step_is_not_set_aside() {
             (ids(&["ex", "eb"]), ChainClass::Consistent, false),
         ]
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -357,7 +357,7 @@ fn a_location_choice_whose_branches_use_different_edits_is_not_set_aside() {
             (ids(&["d"]), ChainClass::ExactFromBase, true),
         ]
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn a_verified_link_is_explored_mid_bucket() {
             (ids(&["p", "eb"]), ChainClass::Consistent, false),
         ]
     );
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -439,7 +439,7 @@ fn working_tree_heads_are_only_the_last_bucket_of_the_reviewed_worktree() {
     // The target is e1's result; e2 was later undone by hand. A later
     // observed edit supersedes e1's state in the working tree.
     let working = wt("a\n", "b\n", edits());
-    assert!(working.chains.is_empty());
+    assert_eq!(working.chains, []);
     assert_eq!(
         working.status,
         PathStatus::NotComposed {
@@ -818,7 +818,7 @@ fn chains_are_settled_without_comparing_every_pair() {
     let base_chains = summary(&out).iter().filter(|(_, _, base)| *base).count();
     assert_eq!(base_chains, 1 << 15);
     assert_eq!(out.chains.len(), 1 << 16);
-    assert!(out.set_aside.is_empty());
+    assert_eq!(out.set_aside, []);
 }
 
 #[test]
@@ -889,7 +889,7 @@ fn a_merged_group_offers_only_its_last_bucket_as_a_working_tree_head() {
         request(Some("x\n"), Some("y\n"), TargetKind::WorkingTree, edits()),
         in_turn(&["a", "b"]),
     ));
-    assert!(working.chains.is_empty());
+    assert_eq!(working.chains, []);
     assert_eq!(
         working.status,
         PathStatus::NotComposed {

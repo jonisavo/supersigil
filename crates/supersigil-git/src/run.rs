@@ -530,7 +530,7 @@ mod tests {
             text[text.len() - 10..]
         );
         assert_eq!(read_tail(&text[..20], 100).unwrap(), text[..20]);
-        assert!(read_tail(&b""[..], 10).unwrap().is_empty());
+        assert_eq!(read_tail(&b""[..], 10).unwrap(), b"");
     }
 
     #[test]

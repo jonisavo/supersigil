@@ -790,7 +790,8 @@ fn next_lines_address_the_review_shown() {
         next_lines(&[], false, &Addressing::default(), &mut Printed::new()),
         ["Next: supersigil judge complete"]
     );
-    assert!(next_lines(&[], true, &addressing, &mut Printed::new()).is_empty());
+    let next = next_lines(&[], true, &addressing, &mut Printed::new());
+    assert!(next.is_empty(), "{next:?}");
     assert_eq!(shell_word("it's"), r"'it'\''s'");
     assert_eq!(shell_word(""), "''");
 

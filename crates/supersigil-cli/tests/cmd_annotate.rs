@@ -157,7 +157,7 @@ fn refusal(f: &Fixture, before: &[Manifest], output: &Output) -> String {
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
-    assert!(output.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert_eq!(manifests(f), before);
     std::str::from_utf8(&output.stderr).unwrap().to_owned()
 }
@@ -605,12 +605,7 @@ fn a_document_naming_an_ancestor_checkouts_record_imports_into_that_record() {
         outer.snapshot().unwrap().annotation_revisions(&session),
         [AnnotationRevision::FIRST]
     );
-    assert!(
-        own.snapshot()
-            .unwrap()
-            .annotation_revisions(&session)
-            .is_empty()
-    );
+    assert_eq!(own.snapshot().unwrap().annotation_revisions(&session), []);
     // `list` shows the directory's own record alone.
     let sessions: Vec<Value> = serde_json::from_str::<Value>(&listed).unwrap()["sessions"]
         .as_array()
@@ -648,12 +643,7 @@ fn a_document_names_its_record_when_several_own_the_checkout_at_one_distance() {
         named.snapshot().unwrap().annotation_revisions(&session),
         [AnnotationRevision::FIRST]
     );
-    assert!(
-        twin.snapshot()
-            .unwrap()
-            .annotation_revisions(&session)
-            .is_empty()
-    );
+    assert_eq!(twin.snapshot().unwrap().annotation_revisions(&session), []);
     assert!(
         listed.contains("is associated with several records"),
         "{listed}"
@@ -1367,7 +1357,7 @@ fn an_edit_carries_its_hunks_or_else_its_new_text_cut_at_2000_characters() {
             _ => None,
         })
         .unwrap();
-    assert!(!hunks.is_empty());
+    assert!(!hunks.is_empty(), "the edit retains its display patch");
 
     let brief = brief(&f, &f.repo, &["s-write"]);
 
