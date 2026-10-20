@@ -88,14 +88,12 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
     };
     // Under the lock, the store refuses the document if another import
     // stored a revision since the snapshot.
-    let revision = tx
-        .put_annotation(&session, document.based_on, document)
-        .map_err(|error| match error {
-            StoreError::StaleAnnotation { based_on, current } => {
-                CliError::refused([stale(based_on, current)].into())
-            }
-            error => error.into(),
-        })?;
+    let revision = tx.put_annotation(document).map_err(|error| match error {
+        StoreError::StaleAnnotation { based_on, current } => {
+            CliError::refused([stale(based_on, current)].into())
+        }
+        error => error.into(),
+    })?;
     tx.commit()?;
 
     let imported = Imported {

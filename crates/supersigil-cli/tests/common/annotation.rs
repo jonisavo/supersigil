@@ -79,7 +79,7 @@ pub fn annotate(record: &Store, session: &str, fields: &Value) -> AnnotationRevi
     }
     let document: AnnotationDocument = serde_json::from_value(document).unwrap();
     let mut tx = record.begin().unwrap();
-    let revision = tx.put_annotation(&id, current, document).unwrap();
+    let revision = tx.put_annotation(document).unwrap();
     tx.commit().unwrap();
     revision
 }

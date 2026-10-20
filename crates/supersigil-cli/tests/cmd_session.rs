@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -149,6 +150,96 @@ fn sync_without_transcripts_hints_and_succeeds() {
         .success()
         .stderr(predicate::str::contains("no transcripts found"))
         .stderr(predicate::str::contains("--transcript"));
+}
+
+/// Every `session` command takes the store options `review`, `why` and
+/// `annotate` take, before or after the subcommand, so one set of options
+/// (a scratch Claude home, say) works for each command. Sync discovers
+/// under the Claude home; list and show read the record without syncing.
+/// None of them touches the review store.
+#[test]
+fn every_session_command_takes_the_shared_store_options() {
+    let e = env();
+    let home = e.checkout.join("scratch-claude-home");
+    common::project_transcript(
+        &home,
+        &canonical(&e.checkout).unwrap(),
+        "slice.jsonl",
+        &in_checkout(&e, &std::fs::read_to_string(fixture_path()).unwrap()),
+    );
+    let reviews = e.checkout.join("reviews");
+    let store_options = [
+        OsStr::new("--claude-home"),
+        home.as_os_str(),
+        OsStr::new("--review-dir"),
+        reviews.as_os_str(),
+        OsStr::new("--record-dir"),
+        e.records.as_os_str(),
+        OsStr::new("--checkout"),
+        e.checkout.as_os_str(),
+    ];
+
+    // Discovered only through the scratch home: `HOME` has no `.claude`.
+    session_cmd(&e)
+        .args(store_options)
+        .arg("sync")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "synced 25 observations from 1 transcript(s)",
+        ));
+    session_cmd(&e)
+        .arg("sync")
+        .args(store_options)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "synced 0 observations from 1 transcript(s)",
+        ));
+    session_cmd(&e)
+        .arg("list")
+        .args(store_options)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("5 edits"));
+    let output = session_cmd(&e)
+        .args(["show", "1111"])
+        .args(store_options)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let shown: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(shown["observations"].as_array().unwrap().len(), 25);
+
+    assert!(!reviews.exists());
+}
+
+/// Each `session` command's help says which store options it uses, since
+/// it accepts all of them.
+#[test]
+fn session_help_says_which_store_options_each_command_uses() {
+    for (command, says) in [
+        ("sync", "--review-dir is unused"),
+        (
+            "list",
+            "without syncing it; --claude-home and --review-dir are unused",
+        ),
+        (
+            "show",
+            "without syncing it; --claude-home and --review-dir are unused",
+        ),
+    ] {
+        let output = common::supersigil_cmd()
+            .args(["session", command, "--help"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let help = String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(help.contains(says), "{command}: {help}");
+    }
 }
 
 #[test]

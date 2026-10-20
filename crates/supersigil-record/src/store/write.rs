@@ -171,14 +171,14 @@ impl<'a> WriteTx<'a> {
         Ok(())
     }
 
-    /// Stores `document` as the next annotation revision of `session`, at
-    /// the transaction's time, and returns that revision.
+    /// Stores `document` as the next annotation revision of the session it
+    /// names, at the transaction's time, and returns that revision.
     ///
-    /// `based_on` must be the session's current revision in the pending
-    /// manifest, or `None` when it has none. A second call for the same
-    /// session in one transaction therefore builds on the first's revision.
-    /// Checks only the session and the revision built on; the caller
-    /// validates the document.
+    /// The document's `based_on` must be the session's current revision in
+    /// the pending manifest, or `None` when it has none. A second call for
+    /// the same session in one transaction therefore builds on the first's
+    /// revision. Checks only the session and the revision built on; the
+    /// caller validates the rest of the document.
     ///
     /// Writes `interpretations/<n>.a<revision>.json` as
     /// [`Self::put_derivations`] writes its file, replacing anything an
@@ -188,8 +188,9 @@ impl<'a> WriteTx<'a> {
     /// # Errors
     ///
     /// Returns [`StoreError::UnknownSession`] if the pending manifest holds
-    /// no observations of `session`, [`StoreError::StaleAnnotation`] if
-    /// `based_on` is not its current revision, [`StoreError::Json`] if
+    /// no observations of the document's session,
+    /// [`StoreError::StaleAnnotation`] if its `based_on` is not the
+    /// session's current revision, [`StoreError::Json`] if
     /// serialization fails, or [`StoreError::Io`] if a directory or file
     /// operation fails. Neither refusal writes anything.
     ///
@@ -198,21 +199,22 @@ impl<'a> WriteTx<'a> {
     /// Panics if the current revision is [`u32::MAX`].
     pub fn put_annotation(
         &mut self,
-        session: &SessionId,
-        based_on: Option<AnnotationRevision>,
         document: AnnotationDocument,
     ) -> Result<AnnotationRevision, StoreError> {
         let Some(&number) = self
             .manifest
             .sessions
-            .get(session)
+            .get(&document.session)
             .filter(|&&number| self.manifest.logs.contains_key(&log_path(number)))
         else {
-            return Err(StoreError::UnknownSession(session.clone()));
+            return Err(StoreError::UnknownSession(document.session));
         };
         let current = annotation_revisions(&self.manifest, number).pop();
-        if based_on != current {
-            return Err(StoreError::StaleAnnotation { based_on, current });
+        if document.based_on != current {
+            return Err(StoreError::StaleAnnotation {
+                based_on: document.based_on,
+                current,
+            });
         }
         let revision = current.map_or(AnnotationRevision::FIRST, AnnotationRevision::next);
         let name = format!("{number}.a{revision}.json");
